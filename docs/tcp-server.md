@@ -4,56 +4,62 @@
 
 This document explains how to work with the [Health Auto Export](https://apple.co/3iqbU2d) TCP server on iPhone/iPad.
 
-**Protocol:** TCP with JSON messages. HTTP is currently not supported.
+## Protocol
 
-**Format:**
+- **Transport:** Raw TCP (no HTTP, no TLS)
+- **Encoding:** UTF-8 JSON
+- **Connection model:** One request per connection — the server sends a response and closes the socket
+- **Default port:** 9000
+- **Security:** No TLS or authentication. Only use on a trusted local network.
 
-JSON-RPC-style objects:
+### Request Format
+
+JSON-RPC 2.0 objects:
 
 ```json
-{"jsonrpc":"2.0","id":"...","method":"...","params":{...}}
+{"jsonrpc":"2.0", "id":"1", "method":"callTool", "params":{...}}
 ```
 
-**Methods supported:**
+### Supported Methods
 
-- `listTools` — discover available tools and their schemas
-  - **Known issue:** `listTools` currently will not work but will be fixed in the next app release
-- `callTool` — invoke one of the tools with arguments
-- Connections: one request per connection. The server sends a response and closes the socket.
-- Health Auto Export listens on port 9000
-- Security: no TLS/auth. Only use on a trusted network.
+| Method | Description |
+|--------|-------------|
+| `callTool` | Invoke a tool with arguments (see below) |
+| `listTools` | Discover available tools and their schemas (**known issue:** not yet functional, fix coming in a future app release) |
 
-## Start the Health Data Server
+## Setup
 
-1. Start the server inside the Health Auto Export app for iPhone/iPad.
-2. Navigate to `Automations -> Server -> Start Server`
+### 1. Start the Health Data Server
 
-_using the TCP server requires premium access after the free access perdiod has ended_
+1. Open the Health Auto Export app on your iPhone/iPad
+2. Navigate to `Automations > Server > Start Server`
 
-## Find Your Device's IP Address
+_The TCP server requires premium access after the free trial period._
 
-On the iPhone/iPad running the app:
+### 2. Find Your Device's IP Address
 
-1. Mavigate to `Settings → Wi-Fi → tap the info ⓘ next to your network`.
-2. Note the device IP Address (e.g., 192.168.1.37).
+On the iPhone/iPad:
 
-## Send A Request
+1. Go to `Settings > Wi-Fi > tap the info (i) next to your connected network`
+2. Note the IP Address (e.g., `192.168.1.37`)
 
-Make sure your computer and device are on the same Wi-Fi network.
+### 3. Send a Request
+
+Ensure your computer and iOS device are on the same Wi-Fi network.
 
 ```bash
 IP=192.168.1.37
 PORT=9000
 echo -n '{
   "jsonrpc":"2.0",
-  "id":"99",
+  "id":"1",
   "method":"callTool",
   "params":{
     "name":"health_metrics",
-    "metrics": "step_count",
     "arguments":{
       "start":"2025-08-01 00:00:00 +0200",
       "end":"2025-08-31 23:59:59 +0200",
+      "metrics":"step_count,heart_rate",
       "interval":"days",
       "aggregate":true
     }
@@ -61,124 +67,258 @@ echo -n '{
 }' | nc $IP $PORT
 ```
 
-### Tool Calling
+## Tool Reference
 
-`callTool` cheatsheet
+All tools require `start` and `end` date parameters in the format: **`yyyy-MM-dd HH:mm:ss Z`** (where `Z` is a timezone offset like `+0200` or `+0000`).
 
-All `start` and `end` dates must follow the format: `yyyy-MM-dd HH:mm:ss Z`
+### `health_metrics`
 
-| Tool name             | Required args  | Optional args (defaults)                                                                    | Notes                                                                    |
-| --------------------- | -------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `health_metrics`      | `start`, `end` | `metrics`=`""`,`interval` = `"days"`, `aggregate` = `true`                                  | Health metrics export. See the bottom of the page for filtering options. |
-| `workouts`            | `start`, `end` | `includeMetadata` = `false`, `includeRoutes` = `false`, `metadataAggregation` = `"minutes"` | Workout sessions; can include route & health metric metadata.            |
-| `symptoms`            | `start`, `end` | –                                                                                           | Export logged symptoms data.                                             |
-| `state_of_mind`       | `start`, `end` | –                                                                                           | Export logged State of Mind data (requires iOS 18 and later).            |
-| `medications`         | `start`, `end` | –                                                                                           | Export logged medication dosages (requires iOS 26 and later).            |
-| `cycle_tracking`      | `start`, `end` | –                                                                                           | Export menstrual cycle data.                                             |
-| `ecg`                 | `start`, `end` | –                                                                                           | Export ECG recordings & metadata.                                        |
-| `heart_notifications` | `start`, `end` | –                                                                                           | Export heart notification events + associated data.                      |
+Retrieve quantitative Apple Health metrics aggregated over a date range. Covers activity, heart, body composition, nutrition, sleep, respiratory, and more.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `start` | string | Yes | — | Start of date range |
+| `end` | string | Yes | — | End of date range |
+| `metrics` | string | No | `""` (all) | Comma-separated list of metric names to retrieve, or empty string for all. See [full list below](#available-health-metrics). |
+| `interval` | string | No | `"days"` | Aggregation interval: `"days"`, `"hours"`, `"minutes"`, or `"seconds"` |
+| `aggregate` | boolean | No | `true` | Aggregate values within each interval (sum, average, etc. depending on metric type) |
+
+**Example — daily step count and heart rate for January:**
+
+```json
+{
+  "jsonrpc":"2.0", "id":"1", "method":"callTool",
+  "params":{
+    "name":"health_metrics",
+    "arguments":{
+      "start":"2025-01-01 00:00:00 +0000",
+      "end":"2025-01-31 23:59:59 +0000",
+      "metrics":"step_count,heart_rate",
+      "interval":"days",
+      "aggregate":true
+    }
+  }
+}
+```
+
+### `workouts`
+
+Retrieve workout sessions (runs, walks, cycling, swimming, strength training, etc.) with type, duration, energy burned, and distance.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `start` | string | Yes | — | Start of date range |
+| `end` | string | Yes | — | End of date range |
+| `includeMetadata` | boolean | No | `false` | Include per-workout health metric time-series (heart rate, calories, cadence, etc.) |
+| `includeRoutes` | boolean | No | `false` | Include GPS latitude/longitude coordinate paths for outdoor workouts |
+| `metadataAggregation` | string | No | `"minutes"` | Resolution for metadata time-series: `"minutes"` or `"seconds"` |
+
+**Example — workouts with heart rate data at per-second resolution:**
+
+```json
+{
+  "jsonrpc":"2.0", "id":"2", "method":"callTool",
+  "params":{
+    "name":"workouts",
+    "arguments":{
+      "start":"2025-03-01 00:00:00 +0000",
+      "end":"2025-03-31 23:59:59 +0000",
+      "includeMetadata":true,
+      "includeRoutes":false,
+      "metadataAggregation":"seconds"
+    }
+  }
+}
+```
+
+### `symptoms`
+
+Retrieve logged symptom entries including type, severity, and timestamps. Covers symptoms such as headaches, nausea, fatigue, dizziness, and more.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `start` | string | Yes | — | Start of date range |
+| `end` | string | Yes | — | End of date range |
+
+### `state_of_mind`
+
+Retrieve State of Mind journal entries with mood labels, valence, and associated context. Users log how they feel at a moment or over a day.
+
+> **Requires iOS 18 or later.**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `start` | string | Yes | — | Start of date range |
+| `end` | string | Yes | — | End of date range |
+
+### `medications`
+
+Retrieve medication dosage logs with medication names, dosage amounts, and timestamps of logged doses.
+
+> **Requires iOS 26 or later.**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `start` | string | Yes | — | Start of date range |
+| `end` | string | Yes | — | End of date range |
+
+### `cycle_tracking`
+
+Retrieve menstrual cycle data including flow level, cervical mucus quality, and other cycle-related indicators.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `start` | string | Yes | — | Start of date range |
+| `end` | string | Yes | — | End of date range |
+
+### `ecg`
+
+Retrieve Apple Watch electrocardiogram (ECG) recordings with classification (sinus rhythm, atrial fibrillation, inconclusive, etc.), average heart rate, and voltage measurements.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `start` | string | Yes | — | Start of date range |
+| `end` | string | Yes | — | End of date range |
+
+### `heart_notifications`
+
+Retrieve heart-related notification events from Apple Watch — irregular rhythm alerts, high/low heart rate warnings, and associated data.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `start` | string | Yes | — | Start of date range |
+| `end` | string | Yes | — | End of date range |
 
 ## Tips & Limitations
 
-- One message per connection: The server cancels the connection after sending JSON. Open a new socket for each request.
-- Message size: The receiver reads up to ~8 KB per receive. Keep requests small and as a single JSON object (no streaming/chunking).
-- Encoding: UTF-8 JSON only. Avoid trailing commas and ensure valid JSON.
-- Clock & timezone: Your examples use +0200. When generating dates in clients, be explicit about timezone.
-- Foreground only: With the current code, the server won’t accept connections if the app is backgrounded or the device is locked.
-- Local/secure networks: No TLS or auth. Use on a private network or behind a tunnel/VPN if needed.
+- **One request per connection.** The server closes the socket after sending the response. Open a new TCP connection for each request.
+- **Message size limit.** The receiver reads up to ~8 KB per receive call. Keep requests small as a single JSON object (no streaming or chunking).
+- **Valid JSON only.** UTF-8 encoded, no trailing commas, no comments.
+- **Timezone awareness.** Be explicit about timezone offsets in date parameters. Do not omit the `Z` offset.
+- **Foreground only.** The server will not accept connections if the app is backgrounded or the device is locked.
+- **No TLS or auth.** Use on a private/trusted network, or tunnel through a VPN.
+- **Large date ranges.** Fetching months of data can produce very large responses. Use smaller date windows or filter specific metrics to keep responses manageable.
 
-## Troubleshooting:
+## Troubleshooting
 
-Ensure the following in event of connection issues or errors:
+If you experience connection issues or errors, verify the following:
 
-- Your Phone and computer are on the same Wi-Fi network.
-- You have set the correct device IP and port 9000.
-- Health Auto Export is open in the foreground and the server is started.
-- No corporate/VPN firewall blocking LAN traffic.
-- You send methods correctly specified methods and tool calls.
-- All required paramters are included in tool calls.
-- Date formats exactly match yyyy-MM-dd HH:mm:ss Z.
-- If you plan to fetch large ranges, consider smaller start/end windows to keep responses manageable.
+- Your computer and iOS device are on the **same Wi-Fi network**
+- You have set the correct device **IP address** and **port 9000**
+- Health Auto Export is **open in the foreground** and the server is **started**
+- No corporate/VPN firewall is **blocking LAN traffic**
+- The `method` is spelled correctly (`callTool`, not `calltool`)
+- All **required parameters** (`start`, `end`) are included
+- Date formats **exactly match** `yyyy-MM-dd HH:mm:ss Z` (e.g., `2025-08-01 00:00:00 +0200`)
 
-## List of available health metrics:
+## Available Health Metrics
 
-The `metrics` parameter is a comma separated list of health metrics or empty string for all metrics. Find the full list of metrics below.
+The `metrics` parameter for `health_metrics` accepts a comma-separated list of names, or an empty string for all. Below is the full list, grouped by category.
 
-- `active_energy`
-- `apple_exercise_time`
-- `apple_move_time`
-- `apple_sleeping_wrist_temperature`
-- `apple_stand_hour`
-- `apple_standtime`
-- `atrial_fibrillation_burden`
-- `basal_body_temperature`
-- `basal_energy`
-- `blood_glucose`
-- `blood_oxygen_saturation`
-- `blood_pressure`
-- `body_fat_percentage`
-- `body_mass`
-- `body_mass_index`
-- `body_temperature`
-- `breathing_disturbances`
-- `biotin`
-- `caffeine`
-- `calcium`
-- `carbohydrates`
-- `chloride`
-- `cholesterol`
-- `chromium`
-- `copper`
-- `cycling_cadence`
-- `cycling_distance`
-- `cycling_functional_threshold_power`
-- `cycling_power`
-- `cycling_speed`
-- `dietary_energy`
-- `downhill_snow_sports`
-- `environmental_audio`
-- `fiber`
-- `flights_climbed`
-- `folate`
-- `forced_expiratory_volume`
-- `forced_vital_capacity`
-- `headphone_audio`
-- `heart_rate`
-- `heart_rate_recovery_one_minute`
-- `heart_rate_variability`
-- `height`
-- `inhaler_usage`
-- `insulin_delivery`
-- `lean_body_mass`
-- `mindful_minutes`
-- `peak_expiratory_flow_rate`
-- `peripheral_perfusion_index`
-- `physical_effort`
-- `respiratory_rate`
-- `resting_heart_rate`
-- `running_ground_contact_time`
-- `running_power`
-- `running_speed`
-- `running_stride_length`
-- `running_vertical_oscillation`
-- `sexual_activity`
-- `six_minute_walking_test_distance`
-- `sleep_analysis`
-- `stair_speed_down`
-- `stair_speed_up`
-- `step_count`
-- `sugar`
-- `swim_stroke_count`
-- `swimming_distance`
-- `under_water_depth`
-- `vo2_max`
-- `waist_circumference`
-- `walk_run_distance`
-- `walking_asymmetry_percentage`
-- `walking_double_support_percentage`
-- `walking_heart_rate`
-- `walking_speed`
-- `walking_step_length`
-- `water`
-- `wheelchair_distance`
-- `wheelchair_push_count`
+### Activity & Movement
+- `active_energy` — Active energy burned (kcal)
+- `apple_exercise_time` — Exercise minutes
+- `apple_move_time` — Move time (minutes)
+- `apple_stand_hour` — Stand hours
+- `apple_standtime` — Stand time (minutes)
+- `flights_climbed` — Flights of stairs climbed
+- `physical_effort` — Physical effort intensity (kcal/hr/kg)
+- `step_count` — Steps taken
+- `walk_run_distance` — Walking + running distance (km)
+
+### Heart & Cardiovascular
+- `heart_rate` — Heart rate (bpm), includes min/max/avg
+- `heart_rate_recovery_one_minute` — Heart rate recovery 1 min after exercise
+- `heart_rate_variability` — HRV in milliseconds
+- `resting_heart_rate` — Resting heart rate (bpm)
+- `walking_heart_rate` — Average heart rate while walking
+- `atrial_fibrillation_burden` — AFib burden percentage
+- `blood_pressure` — Systolic/diastolic blood pressure
+- `blood_oxygen_saturation` — SpO2 percentage
+- `peripheral_perfusion_index` — Peripheral perfusion index
+- `vo2_max` — VO2 max (mL/kg/min)
+
+### Sleep
+- `sleep_analysis` — Sleep stages (deep, REM, core, awake, in-bed duration)
+- `apple_sleeping_wrist_temperature` — Wrist temperature during sleep
+
+### Body Composition
+- `body_mass` — Body weight
+- `body_mass_index` — BMI
+- `body_fat_percentage` — Body fat %
+- `lean_body_mass` — Lean body mass
+- `height` — Height
+- `waist_circumference` — Waist circumference
+
+### Respiratory
+- `respiratory_rate` — Breaths per minute
+- `breathing_disturbances` — Breathing disturbance events during sleep
+- `forced_expiratory_volume` — FEV1
+- `forced_vital_capacity` — FVC
+- `peak_expiratory_flow_rate` — Peak expiratory flow
+- `inhaler_usage` — Inhaler usage count
+
+### Running
+- `running_ground_contact_time` — Ground contact time
+- `running_power` — Running power (watts)
+- `running_speed` — Running speed (km/hr)
+- `running_stride_length` — Stride length
+- `running_vertical_oscillation` — Vertical oscillation
+
+### Walking & Mobility
+- `walking_speed` — Walking speed (km/hr)
+- `walking_step_length` — Step length (cm)
+- `walking_asymmetry_percentage` — Walking asymmetry %
+- `walking_double_support_percentage` — Double support time %
+- `stair_speed_down` — Stair descent speed
+- `stair_speed_up` — Stair ascent speed
+- `six_minute_walking_test_distance` — 6-minute walk test distance
+
+### Cycling
+- `cycling_cadence` — Cycling cadence (RPM)
+- `cycling_distance` — Cycling distance (km)
+- `cycling_functional_threshold_power` — FTP (watts)
+- `cycling_power` — Cycling power (watts)
+- `cycling_speed` — Cycling speed (km/hr)
+
+### Swimming
+- `swim_stroke_count` — Swim stroke count
+- `swimming_distance` — Swimming distance
+- `under_water_depth` — Underwater depth
+
+### Other Sports
+- `downhill_snow_sports` — Downhill snow sports distance
+- `wheelchair_distance` — Wheelchair distance
+- `wheelchair_push_count` — Wheelchair push count
+
+### Nutrition
+- `dietary_energy` — Dietary calories consumed (kcal)
+- `carbohydrates` — Carbohydrates (g)
+- `fiber` — Dietary fiber (g)
+- `sugar` — Sugar (g)
+- `caffeine` — Caffeine (mg)
+- `water` — Water intake (mL)
+- `cholesterol` — Cholesterol (mg)
+
+### Vitamins & Minerals
+- `biotin` — Biotin (mcg)
+- `calcium` — Calcium (mg)
+- `chloride` — Chloride (mg)
+- `chromium` — Chromium (mcg)
+- `copper` — Copper (mg)
+- `folate` — Folate (mcg)
+
+### Metabolic
+- `basal_body_temperature` — Basal body temperature
+- `basal_energy` — Basal energy burned (kcal)
+- `blood_glucose` — Blood glucose level
+- `body_temperature` — Body temperature
+- `insulin_delivery` — Insulin delivery
+
+### Audio & Environment
+- `environmental_audio` — Environmental sound level (dBASPL)
+- `headphone_audio` — Headphone audio level (dBASPL)
+
+### Mindfulness & Other
+- `mindful_minutes` — Mindful minutes
+- `sexual_activity` — Sexual activity

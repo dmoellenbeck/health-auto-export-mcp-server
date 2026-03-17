@@ -16,369 +16,331 @@ const server = new McpServer({
   },
 });
 
-// Health Metrics
+// ---------------------------------------------------------------------------
+// Tool registrations
+// ---------------------------------------------------------------------------
+
+// 1. Health Metrics
 server.tool(
-  "Get Health Metrics",
-  "Get health metrics data for a specified date range",
+  "get_health_metrics",
+  "Retrieve Apple Health metrics (e.g. step count, heart rate, sleep, nutrition) aggregated over a date range. " +
+    "Use this tool when the user asks about any quantitative health or fitness measurement tracked by Apple Health. " +
+    "Returns time-series data points for the requested metrics within the specified date range.",
   {
-    host: z.string().describe("Hostname or IP address of the target server"),
-    port: z.number().min(1).max(65535).describe("Port number to connect to"),
-    method: z.string().describe("JSON-RPC method name"),
-    params: z
-      .object({
-        name: z.string().describe("Tool name to call: health_metrics"),
-        arguments: z
-          .object({
-            start: z
-              .string()
-              .describe("Start timestamp (e.g., '2025-08-01 00:00:00 +0200')"),
-            end: z
-              .string()
-              .describe("End timestamp (e.g., '2025-08-31 23:59:59 +0200')"),
-            metrics: z
-              .string()
-              .describe(
-                "Metrics to export as a comma separated list, or empty string for all metrics (e.g., 'step_count')"
-              ),
-            interval: z
-              .string()
-              .describe("Aggregation interval for metrics (e.g., 'days')"),
-            aggregate: z.boolean().describe("Aggregate metrics (e.g. true)"),
-          })
-          .describe("Arguments for the health_metrics tool call"),
-      })
-      .describe("JSON-RPC parameters with name and arguments"),
-    id: z
-      .union([z.string(), z.number()])
-      .optional()
-      .describe("JSON-RPC request ID (default: auto-generated)"),
-    timeout: z
-      .number()
-      .min(1000)
-      .max(DEFAULT_TIMEOUT)
-      .optional()
+    start: z
+      .string()
       .describe(
-        `Connection timeout in milliseconds (default: ${DEFAULT_TIMEOUT})`
+        "Start of the date range (inclusive). " +
+          "Format: 'yyyy-MM-dd HH:mm:ss Z' where Z is the timezone offset. " +
+          "Example: '2025-08-01 00:00:00 +0200'"
+      ),
+    end: z
+      .string()
+      .describe(
+        "End of the date range (inclusive). " +
+          "Format: 'yyyy-MM-dd HH:mm:ss Z' where Z is the timezone offset. " +
+          "Example: '2025-08-31 23:59:59 +0200'"
+      ),
+    metrics: z
+      .string()
+      .default("")
+      .describe(
+        "Comma-separated list of metric names to retrieve, or empty string to retrieve ALL available metrics. " +
+          "Default: '' (all metrics). " +
+          "Available metric names: " +
+          "active_energy, apple_exercise_time, apple_move_time, apple_sleeping_wrist_temperature, " +
+          "apple_stand_hour, apple_standtime, atrial_fibrillation_burden, basal_body_temperature, " +
+          "basal_energy, blood_glucose, blood_oxygen_saturation, blood_pressure, body_fat_percentage, " +
+          "body_mass, body_mass_index, body_temperature, breathing_disturbances, biotin, caffeine, " +
+          "calcium, carbohydrates, chloride, cholesterol, chromium, copper, cycling_cadence, " +
+          "cycling_distance, cycling_functional_threshold_power, cycling_power, cycling_speed, " +
+          "dietary_energy, downhill_snow_sports, environmental_audio, fiber, flights_climbed, folate, " +
+          "forced_expiratory_volume, forced_vital_capacity, headphone_audio, heart_rate, " +
+          "heart_rate_recovery_one_minute, heart_rate_variability, height, inhaler_usage, " +
+          "insulin_delivery, lean_body_mass, mindful_minutes, peak_expiratory_flow_rate, " +
+          "peripheral_perfusion_index, physical_effort, respiratory_rate, resting_heart_rate, " +
+          "running_ground_contact_time, running_power, running_speed, running_stride_length, " +
+          "running_vertical_oscillation, sexual_activity, six_minute_walking_test_distance, " +
+          "sleep_analysis, stair_speed_down, stair_speed_up, step_count, sugar, swim_stroke_count, " +
+          "swimming_distance, under_water_depth, vo2_max, waist_circumference, walk_run_distance, " +
+          "walking_asymmetry_percentage, walking_double_support_percentage, walking_heart_rate, " +
+          "walking_speed, walking_step_length, water, wheelchair_distance, wheelchair_push_count. " +
+          "Example: 'step_count,heart_rate,sleep_analysis'"
+      ),
+    interval: z
+      .string()
+      .default("days")
+      .describe(
+        "Aggregation interval for the returned data points. " +
+          "Valid values: 'days', 'hours', 'minutes', 'seconds'. " +
+          "Default: 'days'. " +
+          "Example: 'hours'"
+      ),
+    aggregate: z
+      .boolean()
+      .default(true)
+      .describe(
+        "Whether to aggregate metric values within each interval. " +
+          "When true, values are combined (summed, averaged, etc. depending on the metric type) per interval. " +
+          "Default: true"
       ),
   },
-  handleRequest
+  async ({ start, end, metrics, interval, aggregate }) => {
+    return sendToolRequest("health_metrics", {
+      start,
+      end,
+      metrics,
+      interval,
+      aggregate,
+    });
+  }
 );
 
-// Workouts
+// 2. Workouts
 server.tool(
-  "Get Workouts",
-  "Get workouts for a specified date range",
+  "get_workouts",
+  "Retrieve Apple Health workout sessions (e.g. runs, walks, cycling, swimming, strength training) within a date range. " +
+    "Use this tool when the user asks about exercise sessions, workout history, or training data. " +
+    "Returns workout type, duration, energy burned, distance, and optionally GPS routes and per-minute health metric metadata.",
   {
-    host: z.string().describe("Hostname or IP address of the target server"),
-    port: z.number().min(1).max(65535).describe("Port number to connect to"),
-    method: z.string().describe("JSON-RPC method name"),
-    params: z
-      .object({
-        name: z.string().describe("Tool name to call: workouts"),
-        arguments: z
-          .object({
-            start: z
-              .string()
-              .describe("Start timestamp (e.g. '2025-08-01 00:00:00 +0200')"),
-            end: z
-              .string()
-              .describe("End timestamp (e.g. '2025-08-31 23:59:59 +0200')"),
-            includeMetadata: z
-              .boolean()
-              .describe("Include health metric metadata (e.g. true)"),
-            includeRoutes: z
-              .boolean()
-              .describe("Include route data (e.g. true)"),
-            metadataAggregation: z
-              .string()
-              .describe(
-                "Aggregation interval for health metric metadata (e.g. 'minutes' or 'seconds')"
-              ),
-          })
-          .describe("Arguments for the workouts tool call"),
-      })
-      .describe("JSON-RPC parameters with name and arguments"),
-    id: z
-      .union([z.string(), z.number()])
-      .optional()
-      .describe("JSON-RPC request ID (default: auto-generated)"),
-    timeout: z
-      .number()
-      .min(1000)
-      .max(DEFAULT_TIMEOUT)
-      .optional()
+    start: z
+      .string()
       .describe(
-        `Connection timeout in milliseconds (default: ${DEFAULT_TIMEOUT})`
+        "Start of the date range (inclusive). " +
+          "Format: 'yyyy-MM-dd HH:mm:ss Z' where Z is the timezone offset. " +
+          "Example: '2025-08-01 00:00:00 +0200'"
+      ),
+    end: z
+      .string()
+      .describe(
+        "End of the date range (inclusive). " +
+          "Format: 'yyyy-MM-dd HH:mm:ss Z' where Z is the timezone offset. " +
+          "Example: '2025-08-31 23:59:59 +0200'"
+      ),
+    includeMetadata: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Whether to include health metric metadata (heart rate, calories, etc.) recorded during each workout. " +
+          "Default: false. Set to true for detailed physiological data during workouts."
+      ),
+    includeRoutes: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Whether to include GPS route data for location-based workouts (running, cycling, hiking, etc.). " +
+          "Default: false. Set to true to get latitude/longitude coordinate paths."
+      ),
+    metadataAggregation: z
+      .string()
+      .default("minutes")
+      .describe(
+        "Aggregation interval for health metric metadata within each workout. " +
+          "Only relevant when includeMetadata is true. " +
+          "Valid values: 'minutes', 'seconds'. " +
+          "Default: 'minutes'. Use 'seconds' for higher-resolution data."
       ),
   },
-  handleRequest
+  async ({
+    start,
+    end,
+    includeMetadata,
+    includeRoutes,
+    metadataAggregation,
+  }) => {
+    return sendToolRequest("workouts", {
+      start,
+      end,
+      includeMetadata,
+      includeRoutes,
+      metadataAggregation,
+    });
+  }
 );
 
-// Symptoms
+// 3. Symptoms
 server.tool(
-  "Get Symptoms",
-  "Get symptoms data for a specified date range",
+  "get_symptoms",
+  "Retrieve logged symptom entries from Apple Health within a date range. " +
+    "Use this tool when the user asks about symptoms they have tracked, such as headaches, nausea, fatigue, or other health symptoms. " +
+    "Returns symptom type, severity, and timestamps for each logged entry.",
   {
-    host: z.string().describe("Hostname or IP address of the target server"),
-    port: z.number().min(1).max(65535).describe("Port number to connect to"),
-    method: z.string().describe("JSON-RPC method name"),
-    params: z
-      .object({
-        name: z.string().describe("Tool name to call: symptoms"),
-        arguments: z
-          .object({
-            start: z
-              .string()
-              .describe("Start timestamp (e.g. '2025-08-01 00:00:00 +0200')"),
-            end: z
-              .string()
-              .describe("End timestamp (e.g. '2025-08-31 23:59:59 +0200')"),
-          })
-          .describe("Arguments for the symptoms tool call"),
-      })
-      .describe("JSON-RPC parameters with name and arguments"),
-    id: z
-      .union([z.string(), z.number()])
-      .optional()
-      .describe("JSON-RPC request ID (default: auto-generated)"),
-    timeout: z
-      .number()
-      .min(1000)
-      .max(DEFAULT_TIMEOUT)
-      .optional()
+    start: z
+      .string()
       .describe(
-        `Connection timeout in milliseconds (default: ${DEFAULT_TIMEOUT})`
+        "Start of the date range (inclusive). " +
+          "Format: 'yyyy-MM-dd HH:mm:ss Z' where Z is the timezone offset. " +
+          "Example: '2025-08-01 00:00:00 +0200'"
+      ),
+    end: z
+      .string()
+      .describe(
+        "End of the date range (inclusive). " +
+          "Format: 'yyyy-MM-dd HH:mm:ss Z' where Z is the timezone offset. " +
+          "Example: '2025-08-31 23:59:59 +0200'"
       ),
   },
-  handleRequest
+  async ({ start, end }) => {
+    return sendToolRequest("symptoms", { start, end });
+  }
 );
 
-// State of Mind
+// 4. State of Mind
 server.tool(
-  "Get State of Mind",
-  "Get state of mind data for a specified date range",
+  "get_state_of_mind",
+  "Retrieve State of Mind journal entries from Apple Health within a date range. " +
+    "Use this tool when the user asks about their mood, emotions, or mental well-being logs. " +
+    "State of Mind is an iOS 18+ feature where users log how they are feeling at a moment or over a day. " +
+    "Returns mood labels, valence, and associated context for each entry.",
   {
-    host: z.string().describe("Hostname or IP address of the target server"),
-    port: z.number().min(1).max(65535).describe("Port number to connect to"),
-    method: z.string().describe("JSON-RPC method name"),
-    params: z
-      .object({
-        name: z.string().describe("Tool name to call: state_of_mind"),
-        arguments: z
-          .object({
-            start: z
-              .string()
-              .describe("Start timestamp (e.g. '2025-08-01 00:00:00 +0200')"),
-            end: z
-              .string()
-              .describe("End timestamp (e.g. '2025-08-31 23:59:59 +0200')"),
-          })
-          .describe("Arguments for the state_of_mind tool call"),
-      })
-      .describe("JSON-RPC parameters with name and arguments"),
-    id: z
-      .union([z.string(), z.number()])
-      .optional()
-      .describe("JSON-RPC request ID (default: auto-generated)"),
-    timeout: z
-      .number()
-      .min(1000)
-      .max(DEFAULT_TIMEOUT)
-      .optional()
+    start: z
+      .string()
       .describe(
-        `Connection timeout in milliseconds (default: ${DEFAULT_TIMEOUT})`
+        "Start of the date range (inclusive). " +
+          "Format: 'yyyy-MM-dd HH:mm:ss Z' where Z is the timezone offset. " +
+          "Example: '2025-08-01 00:00:00 +0200'"
+      ),
+    end: z
+      .string()
+      .describe(
+        "End of the date range (inclusive). " +
+          "Format: 'yyyy-MM-dd HH:mm:ss Z' where Z is the timezone offset. " +
+          "Example: '2025-08-31 23:59:59 +0200'"
       ),
   },
-  handleRequest
+  async ({ start, end }) => {
+    return sendToolRequest("state_of_mind", { start, end });
+  }
 );
 
-// Medications
+// 5. Medications
 server.tool(
-  "Get Medications",
-  "Get medications data for a specified date range",
+  "get_medications",
+  "Retrieve logged medication dosage records from Apple Health within a date range. " +
+    "Use this tool when the user asks about their medication history, adherence, or dosage logs. " +
+    "Requires iOS 26 or later. Returns medication names, dosage amounts, and timestamps of logged doses.",
   {
-    host: z.string().describe("Hostname or IP address of the target server"),
-    port: z.number().min(1).max(65535).describe("Port number to connect to"),
-    method: z.string().describe("JSON-RPC method name"),
-    params: z
-      .object({
-        name: z.string().describe("Tool name to call: medications"),
-        arguments: z
-          .object({
-            start: z
-              .string()
-              .describe("Start timestamp (e.g. '2025-08-01 00:00:00 +0200')"),
-            end: z
-              .string()
-              .describe("End timestamp (e.g. '2025-08-31 23:59:59 +0200')"),
-          })
-          .describe("Arguments for the medications tool call"),
-      })
-      .describe("JSON-RPC parameters with name and arguments"),
-    id: z
-      .union([z.string(), z.number()])
-      .optional()
-      .describe("JSON-RPC request ID (default: auto-generated)"),
-    timeout: z
-      .number()
-      .min(1000)
-      .max(DEFAULT_TIMEOUT)
-      .optional()
+    start: z
+      .string()
       .describe(
-        `Connection timeout in milliseconds (default: ${DEFAULT_TIMEOUT})`
+        "Start of the date range (inclusive). " +
+          "Format: 'yyyy-MM-dd HH:mm:ss Z' where Z is the timezone offset. " +
+          "Example: '2025-08-01 00:00:00 +0200'"
+      ),
+    end: z
+      .string()
+      .describe(
+        "End of the date range (inclusive). " +
+          "Format: 'yyyy-MM-dd HH:mm:ss Z' where Z is the timezone offset. " +
+          "Example: '2025-08-31 23:59:59 +0200'"
       ),
   },
-  handleRequest
+  async ({ start, end }) => {
+    return sendToolRequest("medications", { start, end });
+  }
 );
 
-// Cycle Tracking
+// 6. Cycle Tracking
 server.tool(
-  "Get Cycle Tracking",
-  "Get cycle tracking data for a specified date range",
+  "get_cycle_tracking",
+  "Retrieve menstrual cycle tracking data from Apple Health within a date range. " +
+    "Use this tool when the user asks about their period, menstrual cycle, ovulation, or related reproductive health data. " +
+    "Returns cycle events including flow level, cervical mucus quality, and other cycle-related indicators.",
   {
-    host: z.string().describe("Hostname or IP address of the target server"),
-    port: z.number().min(1).max(65535).describe("Port number to connect to"),
-    method: z.string().describe("JSON-RPC method name"),
-    params: z
-      .object({
-        name: z.string().describe("Tool name to call: cycle_tracking"),
-        arguments: z
-          .object({
-            start: z
-              .string()
-              .describe("Start timestamp (e.g. '2025-08-01 00:00:00 +0200')"),
-            end: z
-              .string()
-              .describe("End timestamp (e.g. '2025-08-31 23:59:59 +0200')"),
-          })
-          .describe("Arguments for the cycle_tracking tool call"),
-      })
-      .describe("JSON-RPC parameters with name and arguments"),
-    id: z
-      .union([z.string(), z.number()])
-      .optional()
-      .describe("JSON-RPC request ID (default: auto-generated)"),
-    timeout: z
-      .number()
-      .min(1000)
-      .max(DEFAULT_TIMEOUT)
-      .optional()
+    start: z
+      .string()
       .describe(
-        `Connection timeout in milliseconds (default: ${DEFAULT_TIMEOUT})`
+        "Start of the date range (inclusive). " +
+          "Format: 'yyyy-MM-dd HH:mm:ss Z' where Z is the timezone offset. " +
+          "Example: '2025-08-01 00:00:00 +0200'"
+      ),
+    end: z
+      .string()
+      .describe(
+        "End of the date range (inclusive). " +
+          "Format: 'yyyy-MM-dd HH:mm:ss Z' where Z is the timezone offset. " +
+          "Example: '2025-08-31 23:59:59 +0200'"
       ),
   },
-  handleRequest
+  async ({ start, end }) => {
+    return sendToolRequest("cycle_tracking", { start, end });
+  }
 );
 
-// ECG
+// 7. ECG
 server.tool(
-  "Get ECG",
-  "Get ecg data for a specified date range",
+  "get_ecg",
+  "Retrieve electrocardiogram (ECG) recordings and metadata from Apple Health within a date range. " +
+    "Use this tool when the user asks about their ECG results, heart rhythm classifications, or Apple Watch ECG recordings. " +
+    "Returns ECG classification (e.g. sinus rhythm, atrial fibrillation), average heart rate, and voltage measurements.",
   {
-    host: z.string().describe("Hostname or IP address of the target server"),
-    port: z.number().min(1).max(65535).describe("Port number to connect to"),
-    method: z.string().describe("JSON-RPC method name"),
-    params: z
-      .object({
-        name: z.string().describe("Tool name to call: ecg"),
-        arguments: z
-          .object({
-            start: z
-              .string()
-              .describe("Start timestamp (e.g. '2025-08-01 00:00:00 +0200')"),
-            end: z
-              .string()
-              .describe("End timestamp (e.g. '2025-08-31 23:59:59 +0200')"),
-          })
-          .describe("Arguments for the ecg tool call"),
-      })
-      .describe("JSON-RPC parameters with name and arguments"),
-    id: z
-      .union([z.string(), z.number()])
-      .optional()
-      .describe("JSON-RPC request ID (default: auto-generated)"),
-    timeout: z
-      .number()
-      .min(1000)
-      .max(DEFAULT_TIMEOUT)
-      .optional()
+    start: z
+      .string()
       .describe(
-        `Connection timeout in milliseconds (default: ${DEFAULT_TIMEOUT})`
+        "Start of the date range (inclusive). " +
+          "Format: 'yyyy-MM-dd HH:mm:ss Z' where Z is the timezone offset. " +
+          "Example: '2025-08-01 00:00:00 +0200'"
+      ),
+    end: z
+      .string()
+      .describe(
+        "End of the date range (inclusive). " +
+          "Format: 'yyyy-MM-dd HH:mm:ss Z' where Z is the timezone offset. " +
+          "Example: '2025-08-31 23:59:59 +0200'"
       ),
   },
-  handleRequest
+  async ({ start, end }) => {
+    return sendToolRequest("ecg", { start, end });
+  }
 );
 
-// Heart Notifications
+// 8. Heart Notifications
 server.tool(
-  "Get Heart Notifications",
-  "Get heart notifications data for a specified date range",
+  "get_heart_notifications",
+  "Retrieve heart-related notification events from Apple Health within a date range. " +
+    "Use this tool when the user asks about irregular heart rhythm alerts, high/low heart rate notifications, " +
+    "or any cardiovascular warnings generated by Apple Watch. " +
+    "Returns notification type, timestamp, and any associated heart rate or rhythm data.",
   {
-    host: z.string().describe("Hostname or IP address of the target server"),
-    port: z.number().min(1).max(65535).describe("Port number to connect to"),
-    method: z.string().describe("JSON-RPC method name"),
-    params: z
-      .object({
-        name: z.string().describe("Tool name to call: heart_notifications"),
-        arguments: z
-          .object({
-            start: z
-              .string()
-              .describe("Start timestamp (e.g. '2025-08-01 00:00:00 +0200')"),
-            end: z
-              .string()
-              .describe("End timestamp (e.g. '2025-08-31 23:59:59 +0200')"),
-          })
-          .describe("Arguments for the heart_notifications tool call"),
-      })
-      .describe("JSON-RPC parameters with name and arguments"),
-    id: z
-      .union([z.string(), z.number()])
-      .optional()
-      .describe("JSON-RPC request ID (default: auto-generated)"),
-    timeout: z
-      .number()
-      .min(1000)
-      .max(DEFAULT_TIMEOUT)
-      .optional()
+    start: z
+      .string()
       .describe(
-        `Connection timeout in milliseconds (default: ${DEFAULT_TIMEOUT})`
+        "Start of the date range (inclusive). " +
+          "Format: 'yyyy-MM-dd HH:mm:ss Z' where Z is the timezone offset. " +
+          "Example: '2025-08-01 00:00:00 +0200'"
+      ),
+    end: z
+      .string()
+      .describe(
+        "End of the date range (inclusive). " +
+          "Format: 'yyyy-MM-dd HH:mm:ss Z' where Z is the timezone offset. " +
+          "Example: '2025-08-31 23:59:59 +0200'"
       ),
   },
-  handleRequest
+  async ({ start, end }) => {
+    return sendToolRequest("heart_notifications", { start, end });
+  }
 );
 
-interface HealthMetricsArgs {
-  start: string;
-  end: string;
-}
+// ---------------------------------------------------------------------------
+// Internal transport layer -- hidden from MCP consumers
+// ---------------------------------------------------------------------------
 
-async function handleRequest({
-  host,
-  port,
-  method,
-  params,
-  id,
-  timeout = DEFAULT_TIMEOUT,
-}: {
-  host: string;
-  port: number;
-  method: string;
-  params: {
-    name: string;
-    arguments: HealthMetricsArgs;
-  };
-  id?: string | number | undefined;
-  timeout?: number | undefined;
-}): Promise<{ content: Array<{ type: "text"; text: string }> }> {
+async function sendToolRequest(
+  toolName: string,
+  args: Record<string, unknown>
+): Promise<{ content: Array<{ type: "text"; text: string }> }> {
   const net = await import("net");
 
-  const requestId = id || Math.floor(Math.random() * 1000);
+  const requestId = Math.floor(Math.random() * 1000);
   const jsonrpcRequest = {
     jsonrpc: "2.0",
     id: requestId,
-    method: method,
-    params: params || {},
+    method: "callTool",
+    params: {
+      name: toolName,
+      arguments: args,
+    },
   };
 
   const message = JSON.stringify(jsonrpcRequest);
@@ -388,9 +350,9 @@ async function handleRequest({
     let responseData = "";
     let hasResponded = false;
 
-    client.setTimeout(timeout);
+    client.setTimeout(DEFAULT_TIMEOUT);
 
-    client.connect(port, host, () => {
+    client.connect(HAE_PORT, HAE_HOST, () => {
       client.write(message);
     });
 
@@ -401,22 +363,17 @@ async function handleRequest({
     client.on("end", () => {
       if (!hasResponded) {
         hasResponded = true;
-        let responseText = `JSON-RPC request to ${host}:${port} completed successfully.\n`;
-        responseText += `Request: ${message}\n\n`;
+        let responseText = "";
 
         if (responseData) {
           try {
             const parsedResponse = JSON.parse(responseData);
-            responseText += `Response: ${JSON.stringify(
-              parsedResponse,
-              null,
-              2
-            )}`;
+            responseText = JSON.stringify(parsedResponse, null, 2);
           } catch {
-            responseText += `Raw Response: ${responseData}`;
+            responseText = responseData;
           }
         } else {
-          responseText += "No response data received";
+          responseText = "No response data received from Health Auto Export.";
         }
 
         resolve({
@@ -432,7 +389,10 @@ async function handleRequest({
           content: [
             {
               type: "text",
-              text: `JSON-RPC request to ${host}:${port} failed: ${error.message}`,
+              text:
+                `Failed to connect to Health Auto Export at ${HAE_HOST}:${HAE_PORT}: ${error.message}. ` +
+                "Ensure the Health Auto Export app is open in the foreground with the server started, " +
+                "and that this machine is on the same Wi-Fi network as the iOS device.",
             },
           ],
         });
@@ -447,7 +407,9 @@ async function handleRequest({
           content: [
             {
               type: "text",
-              text: `JSON-RPC request to ${host}:${port} timed out after ${timeout}ms`,
+              text:
+                `Request to Health Auto Export timed out after ${DEFAULT_TIMEOUT}ms. ` +
+                "The app may be backgrounded or the device may be locked.",
             },
           ],
         });
@@ -461,7 +423,7 @@ async function handleRequest({
           content: [
             {
               type: "text",
-              text: `JSON-RPC request to ${host}:${port} closed`,
+              text: "Connection to Health Auto Export closed unexpectedly.",
             },
           ],
         });

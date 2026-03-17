@@ -1,86 +1,129 @@
-# Health Auto Export
+# Health Auto Export MCP Server
 
-This project provides examples of how to work with the TCP server in [Health Auto Export](https://apple.co/3iqbU2d) app for iPhone/iPad.
+An [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) server that bridges LLM clients to the [Health Auto Export](https://apple.co/3iqbU2d) iOS app, giving AI assistants direct access to Apple Health data.
 
-You can make queries to the server directly over TCP, or the project can be connected to LLMs, such as Claude app for desktop, via MCP.
+Query health metrics, workouts, sleep, ECG recordings, and more — all from natural language through any MCP-compatible client.
 
-In the `/docs` folder you will find more detailed instructions.
+## Available Tools
 
-- [How to use the TCP server](docs/tcp-server.md)
+The server exposes 8 tools covering all Health Auto Export data types:
 
-# Running This Project
+| Tool | Description | Optional Parameters |
+|------|-------------|---------------------|
+| `get_health_metrics` | 80+ health & fitness metrics (steps, heart rate, sleep, nutrition, body composition, etc.) | `metrics`, `interval`, `aggregate` |
+| `get_workouts` | Workout sessions with type, duration, energy, distance | `includeMetadata`, `includeRoutes`, `metadataAggregation` |
+| `get_symptoms` | Logged symptom entries (headaches, fatigue, nausea, etc.) | — |
+| `get_state_of_mind` | Mood and emotion journal entries (iOS 18+) | — |
+| `get_medications` | Medication dosage logs (iOS 26+) | — |
+| `get_cycle_tracking` | Menstrual cycle data | — |
+| `get_ecg` | Apple Watch ECG recordings and classifications | — |
+| `get_heart_notifications` | Heart-related alerts (irregular rhythm, high/low HR) | — |
+
+All tools require `start` and `end` date parameters in the format `yyyy-MM-dd HH:mm:ss Z`.
+
+For detailed protocol documentation and the full list of available health metrics, see [docs/tcp-server.md](docs/tcp-server.md).
 
 ## Prerequisites
 
-- **Node.js**: Version 18 or higher
-- **npm**: Comes with Node.js
-- **Health Auto Export app**: Installed on iPhone/iPad with Premium access
-- **Network access**: Your computer and mobile device must be on the same Wi-Fi network
+- **Node.js** 18+
+- **Health Auto Export app** on iPhone/iPad with Premium access
+- **Same Wi-Fi network** between your computer and iOS device
 
-## Installation
+## Quick Start
 
-1. **Clone the repository**:
-
+1. **Clone and install**:
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/dmoellenbeck/health-auto-export-mcp-server.git
    cd health-auto-export-mcp-server
-   ```
-
-2. **Install dependencies**:
-
-   ```bash
    npm install
    ```
 
-3. **Configure `.env` file**:
+2. **Configure environment**:
+   ```bash
+   cp .env.example .env
+   ```
+   Edit `.env` and set `HAE_HOST` to your iOS device's IP address (find it in Settings > Wi-Fi > tap the info icon next to your network).
 
-   - Copy the `.env.example` file and rename it to `.env`
-   - Set the appropriate value for `HAE_HOST` (your device IP address)
-
-4. **Build the project**:
-
+3. **Build**:
    ```bash
    npm run build
    ```
 
-5. **Run dev server**:
+4. **Start the iOS server**: Open Health Auto Export on your device and navigate to `Automations > Server > Start Server`.
 
-   ```bash
-   npm run dev
-   ```
+## MCP Client Setup
 
-## Usage
+### Claude Desktop
 
-### TCP
+Add to your `claude_desktop_config.json` (Settings > Developer > Edit Config):
 
-`client_example.ts` provides an example of a client that connects to the Health Auto Export server over TCP.
+```json
+{
+  "mcpServers": {
+    "health_auto_export": {
+      "command": "node",
+      "args": ["/absolute/path/to/dist/server.js"]
+    }
+  }
+}
+```
 
-1. Build the project using `npm run build`
-2. Run the client using `node ./dist/client_example.js`
-3. Expand on the code to build your own integration
+Restart Claude Desktop to activate.
 
-### Configure Claude MCP
+### Claude Code
 
-Refer to `server.ts`
+Add the MCP server via the CLI:
 
-1. Build the project using `npm run build`
-2. Navigate to `Settings -> Developer -> Edit Config`
-3. This should open `claude_desktop_config.json`
-4. Add the MCP server details as shown below, pointing to the correct path on disk where you have set up this project:
+```bash
+claude mcp add health_auto_export node /absolute/path/to/dist/server.js
+```
 
-   ```json
-   {
-     "mcpServers": {
-       "health_auto_export": {
-         "command": "node",
-         "args": ["/Users/username/Desktop/hae-mcp/dist/server.js"]
-       }
-     }
-   }
-   ```
+### Other MCP Clients
 
-5. Restart Claude Desktop
-6. Keep in mind Claude's context window limitations when using MCP. This means data may need to be aggregated appropriately in order to process requests.
-7. Further information on Claude Desktop MCP configuration
+Any MCP-compatible client can connect using the stdio transport. The server binary is `dist/server.js`.
 
-   - [Connect to local MCP servers](https://modelcontextprotocol.io/docs/develop/connect-local-servers)
+For more on MCP client configuration, see [Connecting to local MCP servers](https://modelcontextprotocol.io/docs/develop/connect-local-servers).
+
+## Development
+
+```bash
+npm run dev          # Run via ts-node (no build step)
+npm run build        # Compile TypeScript to dist/
+npm start            # Run compiled server
+```
+
+## Direct TCP Usage
+
+You can also query the Health Auto Export app directly over TCP without the MCP layer:
+
+```bash
+echo -n '{
+  "jsonrpc":"2.0",
+  "id":"1",
+  "method":"callTool",
+  "params":{
+    "name":"health_metrics",
+    "arguments":{
+      "start":"2025-01-01 00:00:00 +0000",
+      "end":"2025-01-31 23:59:59 +0000",
+      "metrics":"step_count,heart_rate",
+      "interval":"days",
+      "aggregate":true
+    }
+  }
+}' | nc 192.168.1.37 9000
+```
+
+See `src/example/client_example.ts` for a TypeScript TCP client example.
+
+## Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `HAE_HOST` | iOS device IP address | `localhost` |
+| `HAE_PORT` | TCP server port | `9000` |
+| `HAE_TIMEOUT` | Request timeout (ms) | `86400000` (24h) |
+
+## License
+
+MIT
